@@ -1,33 +1,158 @@
-name: Build Electron App
-
+name: Release
 on:
   push:
+    # 这里是触发条件
     branches:
       - main
-      
+      - master
+    paths-ignore:
+      - "**.md"
+      - "**.spec.js"
+      - ".idea"
+      - ".gitignore"
+      - ".github/**"
+      - "!.github/workflows/release.yml"
+  # Allows you to run this workflow manually from the Actions tab
+  workflow_dispatch:
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: true
+
+defaults:
+  run:
+    shell: "bash"
+
 jobs:
-  build:
+  # 形成github草稿
+  draft:
     runs-on: windows-latest
+    outputs:
+      release-note: ${{ steps.release-note.outputs.release-note }}
+      version: ${{ steps.version.outputs.build-version }}
+
     steps:
       - uses: actions/checkout@v2
-      
-      - name: Set GH_TOKEN
-        run: echo "GH_TOKEN=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" >> $GITHUB_ENV
-      
-      - name: Setup Node.js
-        uses: actions/setup-node@v1
         with:
-          node-version: '14.x'
+          fetch-depth: 0
+
+      - uses: actions/setup-node@v2
+        with:
+          node-version: 14
+
+      - name: Get last git tag
+        id: tag
+        run: echo "::set-output name=last-tag::$(git describe --tags --abbrev=0 || git rev-list --max-parents=0 ${{github.ref}})"
+
+      # 产生日志
+      - name: Generate release notes
+        uses: ./.github/actions/release-notes
+        id: release-note
+        with:
+          from: ${{ steps.tag.outputs.last-tag }}
+          to: ${{ github.ref }}
+          include-commit-body: true
+          include-abbreviated-commit: true
+
+      # 从当前的日期获取构建号
+      - name: Get version from current date
+        id: version
+        run: echo "::set-output name=build-version::$(node -e "try{console.log(require('./electron-builder.config.js').extraMetadata.version)}catch(e){console.error(e);process.exit(1)}")"
+
+      - name: Waiting on All checks
+        uses: lewagon/wait-on-check-action@v0.2
+        with:
+          ref: ${{ github.ref }}
+          repo-token: ${{ secrets.GH_TOKEN }}
+          running-workflow-name: "draft"
+
+      # 删除过期的Draft草稿
+      - name: Delete outdated drafts
+        uses: hugo19941994/delete-draft-releases@v1.0.0
+        env:
+          GITHUB_TOKEN: ${{ secrets.GH_TOKEN }}
+
+      - name: Create Release Draft
+        uses: softprops/action-gh-release@v1
+        env:
+          GITHUB_TOKEN: ${{ secrets.GH_TOKEN }}
+        with:
+          prerelease: true
+          draft: true
+          tag_name: v${{ steps.version.outputs.build-version }}
+          name: v${{ steps.version.outputs.build-version }}
+          body: ${{ steps.release-note.outputs.release-note }}
+
+  upload_artifacts:
+    needs: [draft]
+
+    strategy:
+      matrix:
+        os: [windows-latest, macos-latest, ubuntu-latest]
+    #    To compile the application for different platforms, use:
+    #    os: [ macos-latest, ubuntu-latest, windows-latest ]
+
+    runs-on: ${{ matrix.os }}
+
+    steps:
+      - uses: actions/checkout@v2
+
+      - uses: actions/setup-node@v2
+        with:
+          node-version: 16 # Need for npm >=7.7
+          cache: "npm"
 
       - name: Install dependencies
+        run: npm ci
+
+      # The easiest way to transfer release notes to a compiled application is create `release-notes.md` in the build resources.
+      # See https://github.com/electron-userland/electron-builder/issues/1511#issuecomment-310160119
+      - name: Prepare release notes
+        env:
+          RELEASE_NOTE: ${{ needs.draft.outputs.release-note }}
+        run: echo "$RELEASE_NOTE" >> ./buildResources/release-notes.md
+
+      - name: Prepare for app notarization
+        if: startsWith(matrix.os, 'macos')
+        # Import Apple API key for app notarization on macOS
         run: |
-          npm install
+          mkdir -p ~/private_keys/
+          echo '${{ secrets.api_key }}' > ~/private_keys/AuthKey_${{ secrets.api_key_id }}.p8
 
-      - name: Build app
-        run: npm run electron:build
-
-      - name: Upload release asset
-        uses: actions/upload-artifact@v2
+      # Compile app and upload artifacts
+      - name: Compile & release Electron app
+        uses: samuelmeuli/action-electron-builder@v1
+        env:
+          VITE_APP_VERSION: ${{ needs.draft.outputs.version }}
+          # macOS notarization API key
+          API_KEY_ID: ${{ secrets.api_key_id }}
+          API_KEY_ISSUER_ID: ${{ secrets.api_key_issuer_id }}
         with:
-          name: release
-          path: dist_electron/
+          build_script_name: build
+          args: --config electron-builder.config.js
+
+          # GitHub token, automatically provided to the action
+          # (No need to define this secret in the repo settings)
+          github_token: ${{ secrets.GH_TOKEN }}
+
+          # If the commit is tagged with a version (e.g. "v1.0.0"),
+          # release the app after building
+          release: true
+
+          # Sometimes the build may fail due to a connection problem with Apple, GitHub, etc. servers.
+          # This option will restart the build as many attempts as possible
+          max_attempts: 3
+
+          # Code Signing params
+
+          # Base64-encoded code signing certificate for Windows
+          # windows_certs: ''
+
+          # Password for decrypting `windows_certs`
+          # windows_certs_password: ''
+
+          # Base64-encoded code signing certificate for macOS
+          mac_certs: ${{ secrets.mac_certs }}
+
+          # Password for decrypting `mac_certs`
+          mac_certs_password: ${{ secrets.mac_certs_password }}
