@@ -4,13 +4,16 @@ on:
   push:
     branches:
       - main
-
+      
 jobs:
   build:
     runs-on: windows-latest
     steps:
       - uses: actions/checkout@v2
-
+      
+      - name: Set GH_TOKEN
+        run: echo "GH_TOKEN=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" >> $GITHUB_ENV
+      
       - name: Setup Node.js
         uses: actions/setup-node@v1
         with:
