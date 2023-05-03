@@ -12,7 +12,7 @@ jobs:
       - uses: actions/checkout@v2
       
       - name: Set GH_TOKEN
-        run: echo "GH_TOKEN=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" >> $GITHUB_ENV
+        run: echo "GH_TOKEN=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" >> $GITHUB_ENV
       
       - name: Setup Node.js
         uses: actions/setup-node@v1
