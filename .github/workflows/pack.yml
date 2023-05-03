@@ -32,28 +32,25 @@ jobs:
       version: ${{ steps.version.outputs.build-version }}
 
     steps:
-      - name: Install Node.js, NPM and Yarn
-        uses: actions/setup-node@v1
-        with:
-          node-version: 10
-      - name: Build/release Electron app
-        env:
-          GH_TOKEN: ${{ secrets.github_token }}
-        run: |
-          yarn install
-          (Get-Content "node_modules/builder-util/out/util.js").Replace("^[\w","^[.\w")| out-file "node_modules/builder-util/out/util.js"
-          npm electron:build --publish always
-    
-    
+  
       - uses: actions/checkout@v2
         with:
           fetch-depth: 0
-
+      
+      - name: bu
+        run: |
+          npm install
+          npm electron:build
+          
+      
       - uses: actions/setup-node@v2
         with:
           node-version: 14
 
       - name: Get last git tag
+      
+      
+      
         id: tag
         run: echo "::set-output name=last-tag::$(git describe --tags --abbrev=0 || git rev-list --max-parents=0 ${{github.ref}})"
 
