@@ -1,6 +1,8 @@
 {
   "name": "warpexport",
   "version": "0.1.0",
+  "description": "WarpExport",
+  "author": "MoYiJiangNan 1545929126@qq.com",
   "private": true,
   "scripts": {
     "serve": "vue-cli-service serve",
