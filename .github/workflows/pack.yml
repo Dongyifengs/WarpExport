@@ -1,4 +1,4 @@
-name: Releasee
+name: Release
 on:
   push:
     # 这里是触发条件
