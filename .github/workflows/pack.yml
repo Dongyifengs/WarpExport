@@ -12,6 +12,8 @@ jobs:
         run: |
           npm install
           npm run electron:build
+        env:
+          NODE_OPTIONS: --openssl-legacy-provider # 在这里设置环境变量
       - name: Upload file # 将构建产物进行上传
         uses: actions/upload-artifact@v2
         with:
