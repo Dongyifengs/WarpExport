@@ -14,8 +14,8 @@ jobs:
           npm install
           npm run electron:build
         env:
-          GITHUB_TOKEN: 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
-          GH_TOKEN: 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
+          GITHUB_TOKEN: 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
+          GH_TOKEN: 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
           NODE_OPTIONS: --openssl-legacy-provider # 在这里设置环境变量
       - name: Upload file # 将构建产物进行上传
         uses: actions/upload-artifact@v2
