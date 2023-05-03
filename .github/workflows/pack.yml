@@ -8,14 +8,13 @@ jobs:
     runs-on: windows-latest # 在 windows 系统中运行
     steps:
       - uses: actions/checkout@v2 # 下载仓库代码到工作流机器中
-      - name: Set up GitHub Token
-        run: echo "GH_TOKEN=${{ secrets.GH_TOKEN }}" >> $GITHUB_TOKEN
       - name: Install and Pack # 安装依赖并且进行构建
         run: |
           set NODE_OPTIONS=--openssl-legacy-provider
           npm install
           npm run electron:build
         env:
+          GH_TOKEN: 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
           NODE_OPTIONS: --openssl-legacy-provider # 在这里设置环境变量
       - name: Upload file # 将构建产物进行上传
         uses: actions/upload-artifact@v2
