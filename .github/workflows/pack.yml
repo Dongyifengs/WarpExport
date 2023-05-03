@@ -1,168 +1,121 @@
-name: Release
+# 在主分支上构建
+name: build
 on:
-  push:
-    # 这里是触发条件
+  push: # push 触发
     branches:
       - main
-      - master
-    paths-ignore:
-      - "**.md"
-      - "**.spec.js"
-      - ".idea"
-      - ".gitignore"
-      - ".github/**"
-      - "!.github/workflows/release.yml"
-  # Allows you to run this workflow manually from the Actions tab
-  workflow_dispatch:
-
-concurrency:
-  group: release-${{ github.ref }}
-  cancel-in-progress: true
-
-defaults:
-  run:
-    shell: "bash"
 
 jobs:
-  # 形成github草稿
-  draft:
-    runs-on: windows-latest
+  # ========================= 准备项目 ========================= 
+  init:
+    name: 初始化构建
+    runs-on: ubuntu-latest
     outputs:
-      release-note: ${{ steps.release-note.outputs.release-note }}
-      version: ${{ steps.version.outputs.build-version }}
-
+      build_web: ${{ steps.step_init.outputs.BUILD_WEB }}
+      build_electron: ${{ steps.step_init.outputs.BUILD_ELECTRON }}
+      version: ${{ steps.step_init.outputs.VERSION }}
     steps:
-  
-      - uses: actions/checkout@v2
-        with:
-          fetch-depth: 0
-      
-      - name: bu
-        run: |
-          npm install
-          npm electron:build
-          
-      
-      - uses: actions/setup-node@v2
-        with:
-          node-version: 14
+    # 拉取代码
+    - name: Checkout
+      uses: actions/checkout@v3
+      with:
+        persist-credentials: false
+    # 初始化一些流程需要的环境变量
+    - name: Init Env
+      id: step_init
+      run: |
+        # 判断是否需要构建 web 版本，检查 push message 中最后一行是否不包含 [not-build-web]（默认构建）
+        if [[ $(git log -1 --pretty=%B) != *"[not-build-web]"* ]]; then
+          echo 'BUILD_WEB=true'
+          echo 'BUILD_WEB=true' >> $GITHUB_OUTPUT
+        else
+          echo 'BUILD_WEB=false'
+          echo 'BUILD_WEB=false' >> $GITHUB_OUTPUT
+        fi
+        # 判断是否需要构建 electron 版本，检查 push message 中最后一行是否包含 [build-electron]
+        if [[ $(git log -1 --pretty=%B) == *"[build-electron]"* ]]; then
+          echo 'BUILD_ELECTRON=true'
+          echo 'BUILD_ELECTRON=true' >> $GITHUB_OUTPUT
+        else
+          echo 'BUILD_ELECTRON=false'
+          echo 'BUILD_ELECTRON=false' >> $GITHUB_OUTPUT
+        fi
+        # 获取版本号
+        echo VERSION=$(node -p "require('./package.json').version") >> $GITHUB_OUTPUT
 
-      - name: Get last git tag
-      
-      
-      
-        id: tag
-        run: echo "::set-output name=last-tag::$(git describe --tags --abbrev=0 || git rev-list --max-parents=0 ${{github.ref}})"
-
-      # 产生日志
-      - name: Generate release notes
-        uses: ./.github/actions/release-notes
-        id: release-note
-        with:
-          from: ${{ steps.tag.outputs.last-tag }}
-          to: ${{ github.ref }}
-          include-commit-body: true
-          include-abbreviated-commit: true
-
-      # 从当前的日期获取构建号
-      - name: Get version from current date
-        id: version
-        run: echo "::set-output name=build-version::$(node -e "try{console.log(require('./electron-builder.config.js').extraMetadata.version)}catch(e){console.error(e);process.exit(1)}")"
-
-      - name: Waiting on All checks
-        uses: lewagon/wait-on-check-action@v0.2
-        with:
-          ref: ${{ github.ref }}
-          repo-token: ${{ secrets.GH_TOKEN }}
-          running-workflow-name: "draft"
-
-      # 删除过期的Draft草稿
-      - name: Delete outdated drafts
-        uses: hugo19941994/delete-draft-releases@v1.0.0
-        env:
-          GITHUB_TOKEN: ${{ secrets.GH_TOKEN }}
-
-      - name: Create Release Draft
-        uses: softprops/action-gh-release@v1
-        env:
-          GITHUB_TOKEN: ${{ secrets.GH_TOKEN }}
-        with:
-          prerelease: true
-          draft: true
-          tag_name: v${{ steps.version.outputs.build-version }}
-          name: v${{ steps.version.outputs.build-version }}
-          body: ${{ steps.release-note.outputs.release-note }}
-
-  upload_artifacts:
-    needs: [draft]
-
+  # ========================= 构建 Electron 版本 ========================= 
+  build-electron:
+    name: 构建 Electron 版本
+    runs-on: ${{ matrix.os }}
     strategy:
       matrix:
-        os: [windows-latest, macos-latest, ubuntu-latest]
-    #    To compile the application for different platforms, use:
-    #    os: [ macos-latest, ubuntu-latest, windows-latest ]
+        os: [windows-2019]
+    outputs:
+      version: ${{ needs.init.outputs.version }}
 
-    runs-on: ${{ matrix.os }}
+    needs: init
+    if: needs.init.outputs.build_electron == 'true'
 
     steps:
-      - uses: actions/checkout@v2
 
-      - uses: actions/setup-node@v2
-        with:
-          node-version: 16 # Need for npm >=7.7
-          cache: "npm"
+    # 拉取代码
+    - name: Checkout
+      uses: actions/checkout@v3
+      with:
+        persist-credentials: false
+    # 设置 Node.js 版本
+    - name: Load Node.js
+      uses: actions/setup-node@v3
+      with:
+        node-version: 16.x
+    # 更新依赖
+    - name: Install
+      run: npm install
 
-      - name: Install dependencies
-        run: npm ci
+    # 构建 electron 版本（Windows）
+    - name: Build Electron (Windows)
+      if: matrix.os == 'windows-2019'
+      run: npm install electron:build --win
+      env:
+        NODEJS_ENV: github-actions
+        GH_TOKEN: ${{ secrets.ACCESS_TOKEN }}
 
-      # The easiest way to transfer release notes to a compiled application is create `release-notes.md` in the build resources.
-      # See https://github.com/electron-userland/electron-builder/issues/1511#issuecomment-310160119
-      - name: Prepare release notes
-        env:
-          RELEASE_NOTE: ${{ needs.draft.outputs.release-note }}
-        run: echo "$RELEASE_NOTE" >> ./buildResources/release-notes.md
+    # 上传构建结果
+    - name: Upload Artifacts
+      uses: actions/upload-artifact@v2
+      with:
+        name: ${{ needs.init.outputs.version }}
+        path: dist_electron/out
 
-      - name: Prepare for app notarization
-        if: startsWith(matrix.os, 'macos')
-        # Import Apple API key for app notarization on macOS
-        run: |
-          mkdir -p ~/private_keys/
-          echo '${{ secrets.api_key }}' > ~/private_keys/AuthKey_${{ secrets.api_key_id }}.p8
+  # ========================= 发布构建结果 ========================= 
+  release:
+    name: 发布构建结果
+    runs-on: ubuntu-latest
+    needs: build-electron
 
-      # Compile app and upload artifacts
-      - name: Compile & release Electron app
-        uses: samuelmeuli/action-electron-builder@v1
-        env:
-          VITE_APP_VERSION: ${{ needs.draft.outputs.version }}
-          # macOS notarization API key
-          API_KEY_ID: ${{ secrets.api_key_id }}
-          API_KEY_ISSUER_ID: ${{ secrets.api_key_issuer_id }}
-        with:
-          build_script_name: build
-          args: --config electron-builder.config.js
-
-          # GitHub token, automatically provided to the action
-          # (No need to define this secret in the repo settings)
-          github_token: ${{ secrets.GH_TOKEN }}
-
-          # If the commit is tagged with a version (e.g. "v1.0.0"),
-          # release the app after building
-          release: true
-
-          # Sometimes the build may fail due to a connection problem with Apple, GitHub, etc. servers.
-          # This option will restart the build as many attempts as possible
-          max_attempts: 3
-
-          # Code Signing params
-
-          # Base64-encoded code signing certificate for Windows
-          # windows_certs: ''
-
-          # Password for decrypting `windows_certs`
-          # windows_certs_password: ''
-
-          # Base64-encoded code signing certificate for macOS
-          mac_certs: ${{ secrets.mac_certs }}
-
-          # Password for decrypting `mac_certs`
-          mac_certs_password: ${{ secrets.mac_certs_password }}
+    steps:
+    # 下载构建结果
+    - name: Download Artifacts
+      id: download-artifact
+      uses: actions/download-artifact@v2
+    - name: Artifacts List
+      run: ls -R
+    # 发布构建结果
+    - name: Publish Release
+      uses: softprops/action-gh-release@v1
+      with:
+        files: ./${{ needs.build-electron.outputs.version }}/*
+        tag_name: v${{ needs.build-electron.outputs.version }}
+        body: |
+          # Release 自动构建
+          `这是一个自动构建版本，由 GitHub Actions 自动构建并发布。`
+          ## 更新内容
+          ${{ github.event.head_commit.message }}
+          ## 自动构建信息
+          - 构建时间：${{ github.event.head_commit.timestamp }}
+          - 构建提交：${{ github.event.head_commit.id }}
+          - 构建分支：${{ github.event.head_commit.branch }}
+        draft: false
+        prerelease: false
+        token: ${{ secrets.ACCESS_TOKEN }}
+          
