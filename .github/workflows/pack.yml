@@ -9,7 +9,7 @@ jobs:
     steps:
       - uses: actions/checkout@v2 # 下载仓库代码到工作流机器中
       - name: Set up GitHub Token
-        run: echo "GH_TOKEN=${{ secrets.GH_TOKEN }}" >> $GH_TOKEN
+        run: echo "${{ secrets.GH_TOKEN }}" >> $GH_TOKEN
       - name: Install and Pack # 安装依赖并且进行构建
         run: |
           set NODE_OPTIONS=--openssl-legacy-provider
