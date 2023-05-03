@@ -18,10 +18,7 @@ jobs:
 
       - name: Install dependencies
         run: |
-          set NODE_OPTIONS=--openssl-legacy-provider
-          npm install
-        env:
-          NODE_OPTIONS: --openssl-legacy-provider
+          NODE_OPTIONS=--openssl-legacy-provider npm install
       - name: Build app
         run: npm run electron:build
 
